@@ -1,0 +1,514 @@
+-- GROUP: cit11, MEMBERS: Ida Hay Jørgensen, Julius Krüger Madsen, Marek Laslo, Sofus Hilfling Nielsen
+-- 1
+CREATE OR REPLACE FUNCTION course_count (student_id VARCHAR) 
+RETURNS INTEGER
+AS $$
+  SELECT COUNT(course_id)
+  FROM takes 
+  WHERE id = student_id;
+$$
+LANGUAGE sql;
+CREATE FUNCTION
+
+
+SELECT course_count('12345');
+ course_count 
+--------------
+            4
+(1 row)
+
+SELECT id, course_count(id) FROM student;
+  id   | course_count 
+-------+--------------
+ 00128 |            2
+ 12345 |            4
+ 19991 |            1
+ 23121 |            1
+ 44553 |            1
+ 45678 |            3
+ 54321 |            2
+ 55739 |            1
+ 70557 |            0
+ 76543 |            2
+ 76653 |            1
+ 98765 |            2
+ 98988 |            2
+(13 rows)
+
+
+-- 2
+CREATE OR REPLACE FUNCTION course_count_2 (student_id VARCHAR, department_name VARCHAR) 
+RETURNS INTEGER
+AS $$
+  SELECT COUNT(course_id)
+  FROM takes
+  NATURAL JOIN course
+  WHERE id = student_id
+    AND dept_name = department_name;
+$$
+LANGUAGE sql;
+CREATE FUNCTION
+
+
+SELECT course_count_2('12345','Comp. Sci.');
+ course_count_2 
+----------------
+              4
+(1 row)
+
+SELECT id,name,course_count_2(id,'Comp. Sci.') FROM student;
+  id   |   name   | course_count_2 
+-------+----------+----------------
+ 00128 | Zhang    |              2
+ 12345 | Shankar  |              4
+ 19991 | Brandt   |              0
+ 23121 | Chavez   |              0
+ 44553 | Peltier  |              0
+ 45678 | Levy     |              3
+ 54321 | Williams |              2
+ 55739 | Sanchez  |              0
+ 70557 | Snow     |              0
+ 76543 | Brown    |              2
+ 76653 | Aoi      |              0
+ 98765 | Bourikas |              2
+ 98988 | Tanaka   |              0
+(13 rows)
+
+
+-- 3
+-- Function that takes either student id together with optional department name
+-- if department name is not set the function will return all courses for that student
+-- else it will return the number of courses 
+-- alternative way of doing this would be to use an OR statement in the where clause
+-- but I find the if statement seperate the logic in a better way
+DROP FUNCTION IF EXISTS course_count;
+DROP FUNCTION
+CREATE OR REPLACE FUNCTION course_count (student_id VARCHAR(5),
+                                          department_name VARCHAR(20) DEFAULT NULL) 
+RETURNS INTEGER
+AS $$
+DECLARE
+  course_total INTEGER;
+BEGIN
+  IF department_name IS NULL THEN
+    SELECT COUNT(course_id)
+    INTO course_total
+    FROM takes 
+    WHERE id = student_id;
+  ELSE
+    SELECT COUNT(course_id)
+    INTO course_total
+    FROM takes 
+    NATURAL JOIN course
+    WHERE id = student_id
+      AND dept_name = department_name;
+  END IF;
+  
+  RETURN course_total;
+END;
+$$
+LANGUAGE plpgsql;
+CREATE FUNCTION
+
+
+SELECT course_count('12345'); 
+ course_count 
+--------------
+            4
+(1 row)
+
+SELECT course_count('12345','Comp. Sci.');
+ course_count 
+--------------
+            4
+(1 row)
+
+
+-- 4
+CREATE OR REPLACE FUNCTION department_activities (department_name VARCHAR(50)) 
+RETURNS TABLE(
+  instructor_name VARCHAR(20),
+  title VARCHAR(50),
+  semester VARCHAR(6),
+  "year" NUMERIC(4)
+)
+AS $$
+  SELECT "name", course.title, teaches.semester, teaches."year"
+  FROM instructor 
+  NATURAL JOIN teaches
+  JOIN course USING(course_id)
+  WHERE course.dept_name = department_name;
+$$
+LANGUAGE sql;
+CREATE FUNCTION
+
+
+SELECT department_activities('Comp. Sci.');
+                department_activities                
+-----------------------------------------------------
+ (Srinivasan,"Intro. to Computer Science",Fall,2017)
+ (Srinivasan,Robotics,Spring,2018)
+ (Srinivasan,"Database System Concepts",Fall,2017)
+ (Katz,"Intro. to Computer Science",Spring,2018)
+ (Katz,"Image Processing",Spring,2018)
+ (Brandt,"Game Design",Spring,2017)
+ (Brandt,"Game Design",Spring,2017)
+ (Brandt,"Image Processing",Spring,2018)
+(8 rows)
+
+
+-- 5
+CREATE OR REPLACE FUNCTION activities (param VARCHAR(50)) 
+RETURNS TABLE(
+  department_name VARCHAR(20),
+  instructor_name VARCHAR(20),
+  course_title VARCHAR(50),
+  semester VARCHAR(6),
+  "year" NUMERIC(4)
+)
+AS $$
+  SELECT i.dept_name, "name", title, te.semester, te."year"
+  FROM department
+  NATURAL JOIN instructor AS i
+  NATURAL JOIN teaches AS te
+  JOIN course USING(course_id)
+  WHERE i.dept_name = param OR building = param;
+$$
+LANGUAGE sql;
+CREATE FUNCTION
+
+
+SELECT activities('Comp. Sci.');
+                            activities                            
+------------------------------------------------------------------
+ ("Comp. Sci.",Srinivasan,"Intro. to Computer Science",Fall,2017)
+ ("Comp. Sci.",Srinivasan,Robotics,Spring,2018)
+ ("Comp. Sci.",Srinivasan,"Database System Concepts",Fall,2017)
+ ("Comp. Sci.",Katz,"Intro. to Computer Science",Spring,2018)
+ ("Comp. Sci.",Katz,"Image Processing",Spring,2018)
+ ("Comp. Sci.",Brandt,"Game Design",Spring,2017)
+ ("Comp. Sci.",Brandt,"Game Design",Spring,2017)
+ ("Comp. Sci.",Brandt,"Image Processing",Spring,2018)
+(8 rows)
+
+SELECT activities('Watson');
+                     activities                     
+----------------------------------------------------
+ (Physics,Einstein,"Physical Principles",Fall,2017)
+ (Biology,Crick,"Intro. to Biology",Summer,2017)
+ (Biology,Crick,Genetics,Summer,2018)
+(3 rows)
+
+
+-- 6
+CREATE OR REPLACE FUNCTION followed_courses_by (student_name VARCHAR(20)) 
+RETURNS TEXT
+AS $$
+DECLARE
+  "result" TEXT;
+  next_instructor VARCHAR(20);
+  cur CURSOR FOR 
+    SELECT DISTINCT i."name"
+    FROM student AS s
+    JOIN takes AS ta ON s."id" = ta."id"
+    JOIN teaches AS te ON 
+      te.course_id = ta.course_id
+      AND te.sec_id = ta.sec_id
+      AND te.semester = ta.semester
+      AND te.year = ta.year
+    JOIN instructor AS i ON i."id" = te."id"
+    WHERE s."name" = student_name;
+BEGIN
+  OPEN cur;
+  LOOP
+    FETCH NEXT FROM CUR INTO next_instructor;
+    EXIT WHEN NOT FOUND;
+    IF "result" IS NULL THEN
+      "result" := next_instructor;
+    ELSE
+      "result" := "result" || ', ' || next_instructor;
+    END IF;
+  END LOOP;
+  CLOSE cur;
+  RETURN "result";
+END;
+$$
+LANGUAGE plpgsql;
+CREATE FUNCTION
+
+
+SELECT followed_courses_by('Levy');
+ followed_courses_by 
+---------------------
+ Katz, Srinivasan
+(1 row)
+
+SELECT followed_courses_by('Shankar');
+ followed_courses_by 
+---------------------
+ Brandt, Srinivasan
+(1 row)
+
+SELECT "name", followed_courses_by("name") FROM student;
+   name   | followed_courses_by 
+----------+---------------------
+ Zhang    | Srinivasan
+ Shankar  | Brandt, Srinivasan
+ Brandt   | El Said
+ Chavez   | Wu
+ Peltier  | Einstein
+ Levy     | Katz, Srinivasan
+ Williams | Brandt, Srinivasan
+ Sanchez  | Mozart
+ Snow     | 
+ Brown    | Brandt, Srinivasan
+ Aoi      | Kim
+ Bourikas | Srinivasan
+ Tanaka   | Crick
+(13 rows)
+
+
+-- 7
+CREATE OR REPLACE FUNCTION followed_courses_by (student_name VARCHAR(20)) 
+RETURNS TEXT
+AS $$
+DECLARE
+  "result" TEXT;
+  next_instructor VARCHAR(20);
+BEGIN
+  FOR next_instructor IN 
+    SELECT DISTINCT i."name"
+    FROM student AS s
+    JOIN takes AS ta ON s."id" = ta."id"
+    JOIN teaches AS te ON 
+      te.course_id = ta.course_id
+      AND te.sec_id = ta.sec_id
+      AND te.semester = ta.semester
+      AND te.year = ta.year
+    JOIN instructor AS i ON i."id" = te."id"
+    WHERE s."name" = student_name
+  LOOP
+    IF "result" IS NULL THEN
+      "result" := next_instructor;
+    ELSE
+      "result" := "result" || ', ' || next_instructor;
+    END IF;
+  END LOOP;
+  RETURN "result";
+END;
+$$
+LANGUAGE plpgsql;
+CREATE FUNCTION
+
+
+SELECT followed_courses_by('Shankar');
+ followed_courses_by 
+---------------------
+ Brandt, Srinivasan
+(1 row)
+
+SELECT "name", followed_courses_by("name") FROM student;
+   name   | followed_courses_by 
+----------+---------------------
+ Zhang    | Srinivasan
+ Shankar  | Brandt, Srinivasan
+ Brandt   | El Said
+ Chavez   | Wu
+ Peltier  | Einstein
+ Levy     | Katz, Srinivasan
+ Williams | Brandt, Srinivasan
+ Sanchez  | Mozart
+ Snow     | 
+ Brown    | Brandt, Srinivasan
+ Aoi      | Kim
+ Bourikas | Srinivasan
+ Tanaka   | Crick
+(13 rows)
+
+
+-- 8
+CREATE OR REPLACE FUNCTION followed_courses_by (student_name VARCHAR(20)) 
+RETURNS TEXT
+AS $$
+  SELECT string_agg(DISTINCT i."name", ', ')
+  FROM student AS s
+  JOIN takes AS ta ON s."id" = ta."id"
+  JOIN teaches AS te ON 
+    te.course_id = ta.course_id
+    AND te.sec_id = ta.sec_id
+    AND te.semester = ta.semester
+    AND te.year = ta.year
+  JOIN instructor AS i ON i."id" = te."id"
+  WHERE s."name" = student_name;
+$$
+LANGUAGE sql;
+CREATE FUNCTION
+
+
+SELECT followed_courses_by('Shankar');
+ followed_courses_by 
+---------------------
+ Brandt, Srinivasan
+(1 row)
+
+SELECT "name", followed_courses_by("name") FROM student;
+   name   | followed_courses_by 
+----------+---------------------
+ Zhang    | Srinivasan
+ Shankar  | Brandt, Srinivasan
+ Brandt   | El Said
+ Chavez   | Wu
+ Peltier  | Einstein
+ Levy     | Katz, Srinivasan
+ Williams | Brandt, Srinivasan
+ Sanchez  | Mozart
+ Snow     | 
+ Brown    | Brandt, Srinivasan
+ Aoi      | Kim
+ Bourikas | Srinivasan
+ Tanaka   | Crick
+(13 rows)
+
+
+-- 9
+CREATE OR REPLACE FUNCTION taught_by (student_name VARCHAR(20)) 
+RETURNS TEXT
+AS $$
+  WITH taught_by
+    AS ((SELECT i."name"
+    FROM student AS s
+    JOIN takes AS ta ON s."id" = ta."id"
+    JOIN teaches AS te ON 
+      te.course_id = ta.course_id
+      AND te.sec_id = ta.sec_id
+      AND te.semester = ta.semester
+      AND te.year = ta.year
+    JOIN instructor AS i ON i."id" = te."id"
+    WHERE s."name" = student_name)
+  UNION
+  (SELECT i."name"
+    FROM student AS s
+    JOIN advisor AS ad ON s."id" = ad.s_id
+    JOIN instructor AS i ON i."id" = ad.i_id
+    WHERE s."name" = student_name))
+  SELECT string_agg("name", ', ') FROM taught_by
+$$
+LANGUAGE sql;
+CREATE FUNCTION
+
+
+SELECT taught_by('Shankar');
+     taught_by      
+--------------------
+ Srinivasan, Brandt
+(1 row)
+
+SELECT "name", taught_by("name") FROM student;
+   name   |         taught_by          
+----------+----------------------------
+ Zhang    | Srinivasan, Katz
+ Shankar  | Srinivasan, Brandt
+ Brandt   | El Said
+ Chavez   | Singh, Wu
+ Peltier  | Einstein
+ Levy     | Srinivasan, Katz, Einstein
+ Williams | Srinivasan, Brandt
+ Sanchez  | Mozart
+ Snow     | 
+ Brown    | Srinivasan, Katz, Brandt
+ Aoi      | Kim
+ Bourikas | Srinivasan, Kim
+ Tanaka   | Crick
+(13 rows)
+
+
+-- 10
+ALTER TABLE student
+  ADD COLUMN teachers TEXT;
+ALTER TABLE
+
+UPDATE student AS s
+SET teachers = taught_by(s."name");
+UPDATE 13
+
+CREATE FUNCTION advisor_update_student_teachers_trigger()
+RETURNS TRIGGER
+AS $$
+BEGIN
+  UPDATE student AS s
+  SET teachers = taught_by(s."name")
+  WHERE s."id" = NEW.s_id;
+  RETURN NEW;
+END;
+$$
+LANGUAGE plpgsql;
+CREATE FUNCTION
+
+CREATE FUNCTION takes_update_student_teachers_trigger()
+RETURNS TRIGGER
+AS $$
+BEGIN
+  UPDATE student AS s
+  SET teachers = taught_by(s."name")
+  WHERE s."id" = NEW."id";
+  RETURN NEW;
+END;
+$$
+LANGUAGE plpgsql;
+CREATE FUNCTION
+
+CREATE TRIGGER trigger_advisor_insert
+AFTER INSERT ON advisor
+FOR ROW EXECUTE FUNCTION advisor_update_student_teachers_trigger();
+CREATE TRIGGER
+
+CREATE TRIGGER trigger_takes_insert
+AFTER INSERT ON takes
+FOR ROW EXECUTE FUNCTION takes_update_student_teachers_trigger();
+CREATE TRIGGER
+
+
+SELECT id, "name", teachers, followed_courses_by("name") FROM student;
+  id   |   name   |          teachers          | followed_courses_by 
+-------+----------+----------------------------+---------------------
+ 00128 | Zhang    | Srinivasan, Katz           | Srinivasan
+ 12345 | Shankar  | Srinivasan, Brandt         | Brandt, Srinivasan
+ 19991 | Brandt   | El Said                    | El Said
+ 23121 | Chavez   | Singh, Wu                  | Wu
+ 44553 | Peltier  | Einstein                   | Einstein
+ 45678 | Levy     | Srinivasan, Katz, Einstein | Katz, Srinivasan
+ 54321 | Williams | Srinivasan, Brandt         | Brandt, Srinivasan
+ 55739 | Sanchez  | Mozart                     | Mozart
+ 70557 | Snow     |                            | 
+ 76543 | Brown    | Srinivasan, Katz, Brandt   | Brandt, Srinivasan
+ 76653 | Aoi      | Kim                        | Kim
+ 98765 | Bourikas | Srinivasan, Kim            | Srinivasan
+ 98988 | Tanaka   | Crick                      | Crick
+(13 rows)
+
+INSERT INTO takes VALUES ('12345', 'BIO-101', '1', 'Summer', '2017', 'A');
+INSERT 0 1
+INSERT INTO takes VALUES ('12345', 'HIS-351', '1', 'Spring', '2018', 'B');
+INSERT 0 1
+INSERT INTO advisor VALUES ('54321', '32343');
+INSERT 0 1
+INSERT INTO advisor VALUES ('55739', '76543');
+INSERT 0 1
+SELECT id, "name", teachers, followed_courses_by("name") FROM student;
+  id   |   name   |              teachers              |        followed_courses_by         
+-------+----------+------------------------------------+------------------------------------
+ 00128 | Zhang    | Srinivasan, Katz                   | Srinivasan
+ 19991 | Brandt   | El Said                            | El Said
+ 23121 | Chavez   | Singh, Wu                          | Wu
+ 44553 | Peltier  | Einstein                           | Einstein
+ 45678 | Levy     | Srinivasan, Katz, Einstein         | Katz, Srinivasan
+ 70557 | Snow     |                                    | 
+ 76543 | Brown    | Srinivasan, Katz, Brandt           | Brandt, Srinivasan
+ 76653 | Aoi      | Kim                                | Kim
+ 98765 | Bourikas | Srinivasan, Kim                    | Srinivasan
+ 98988 | Tanaka   | Crick                              | Crick
+ 12345 | Shankar  | El Said, Srinivasan, Crick, Brandt | Brandt, Crick, El Said, Srinivasan
+ 54321 | Williams | El Said, Srinivasan, Brandt        | Brandt, Srinivasan
+ 55739 | Sanchez  | Mozart, Singh                      | Mozart
+(13 rows)
+

@@ -1,6 +1,6 @@
 -- GROUP: cit11, MEMBERS: Ida Hay Jørgensen, Julius Krüger Madsen, Marek Laslo, Sofus Hilfling Nielsen
 -- 1
-CREATE OR REPLACE FUNCTION course_count (student_id VARCHAR(50)) 
+CREATE OR REPLACE FUNCTION course_count (student_id VARCHAR) 
 RETURNS INTEGER
 AS $$
   SELECT COUNT(course_id)
@@ -14,8 +14,8 @@ SELECT course_count('12345');
 SELECT id, course_count(id) FROM student;
 
 -- 2
-CREATE OR REPLACE FUNCTION course_count_2 (student_id VARCHAR(50), department_name VARCHAR(50)) 
-RETURNS int
+CREATE OR REPLACE FUNCTION course_count_2 (student_id VARCHAR, department_name VARCHAR) 
+RETURNS INTEGER
 AS $$
   SELECT COUNT(course_id)
   FROM takes
@@ -35,12 +35,13 @@ SELECT id,name,course_count_2(id,'Comp. Sci.') FROM student;
 -- else it will return the number of courses 
 -- alternative way of doing this would be to use an OR statement in the where clause
 -- but I find the if statement seperate the logic in a better way
+DROP FUNCTION IF EXISTS course_count;
 CREATE OR REPLACE FUNCTION course_count (student_id VARCHAR(5),
                                           department_name VARCHAR(20) DEFAULT NULL) 
-RETURNS int
+RETURNS INTEGER
 AS $$
 DECLARE
-  course_total int;
+  course_total INTEGER;
 BEGIN
   IF department_name IS NULL THEN
     SELECT COUNT(course_id)
@@ -62,8 +63,8 @@ $$
 LANGUAGE plpgsql;
 
 
-SELECT course_count('44985'); 
-SELECT course_count('44985','Comp. Sci.');
+SELECT course_count('12345'); 
+SELECT course_count('12345','Comp. Sci.');
 
 -- 4
 CREATE OR REPLACE FUNCTION department_activities (department_name VARCHAR(50)) 
@@ -95,30 +96,14 @@ RETURNS TABLE(
   "year" NUMERIC(4)
 )
 AS $$
-BEGIN   
-  IF EXISTS(
-    SELECT * 
-    FROM department
-    WHERE dept_name = param) 
-  THEN
-    RETURN QUERY
-      SELECT instructor.dept_name, "name", title, teaches.semester, teaches."year"
-      FROM instructor
-      NATURAL JOIN teaches
-      JOIN course USING(course_id)
-      WHERE instructor.dept_name = param;
-  ELSE
-    RETURN QUERY
-      SELECT instructor.dept_name, "name", title, teaches.semester, teaches."year" 
-      FROM department
-      NATURAL JOIN instructor
-      NATURAL JOIN teaches
-      JOIN course USING(course_id)
-      WHERE building = param;
-  END IF;
-END;
+  SELECT i.dept_name, "name", title, te.semester, te."year"
+  FROM department
+  NATURAL JOIN instructor AS i
+  NATURAL JOIN teaches AS te
+  JOIN course USING(course_id)
+  WHERE i.dept_name = param OR building = param;
 $$
-LANGUAGE plpgsql;
+LANGUAGE sql;
 
 
 SELECT activities('Comp. Sci.');
@@ -135,7 +120,11 @@ DECLARE
     SELECT DISTINCT i."name"
     FROM student AS s
     JOIN takes AS ta ON s."id" = ta."id"
-    JOIN teaches AS te ON te.course_id = ta.course_id
+    JOIN teaches AS te ON 
+      te.course_id = ta.course_id
+      AND te.sec_id = ta.sec_id
+      AND te.semester = ta.semester
+      AND te.year = ta.year
     JOIN instructor AS i ON i."id" = te."id"
     WHERE s."name" = student_name;
 BEGIN
@@ -172,7 +161,11 @@ BEGIN
     SELECT DISTINCT i."name"
     FROM student AS s
     JOIN takes AS ta ON s."id" = ta."id"
-    JOIN teaches AS te ON te.course_id = ta.course_id
+    JOIN teaches AS te ON 
+      te.course_id = ta.course_id
+      AND te.sec_id = ta.sec_id
+      AND te.semester = ta.semester
+      AND te.year = ta.year
     JOIN instructor AS i ON i."id" = te."id"
     WHERE s."name" = student_name
   LOOP
@@ -198,7 +191,11 @@ AS $$
   SELECT string_agg(DISTINCT i."name", ', ')
   FROM student AS s
   JOIN takes AS ta ON s."id" = ta."id"
-  JOIN teaches AS te ON te.course_id = ta.course_id
+  JOIN teaches AS te ON 
+    te.course_id = ta.course_id
+    AND te.sec_id = ta.sec_id
+    AND te.semester = ta.semester
+    AND te.year = ta.year
   JOIN instructor AS i ON i."id" = te."id"
   WHERE s."name" = student_name;
 $$
@@ -216,7 +213,11 @@ AS $$
     AS ((SELECT i."name"
     FROM student AS s
     JOIN takes AS ta ON s."id" = ta."id"
-    JOIN teaches AS te ON te.course_id = ta.course_id
+    JOIN teaches AS te ON 
+      te.course_id = ta.course_id
+      AND te.sec_id = ta.sec_id
+      AND te.semester = ta.semester
+      AND te.year = ta.year
     JOIN instructor AS i ON i."id" = te."id"
     WHERE s."name" = student_name)
   UNION
